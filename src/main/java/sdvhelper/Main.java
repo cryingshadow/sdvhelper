@@ -215,7 +215,8 @@ public class Main {
         writer.write(": \n\n");
         writer.write("Geburtsjahr: \n");
         writer.write("Studiengang: \n");
-        writer.write("Abi: \n");
+        writer.write("HSR: \n");
+        writer.write("Hochschule: \n");
         writer.write("Studium aktuell: \n");
         writer.write("WS ");
         writer.write(year);
