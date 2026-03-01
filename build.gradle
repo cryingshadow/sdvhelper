@@ -1,0 +1,40 @@
+plugins {
+    id 'application'
+    id 'eclipse'
+}
+
+repositories {
+    mavenCentral()
+}
+
+configurations {
+    extraLibs
+}
+
+dependencies {
+    extraLibs fileTree('libs') { include '*.jar' }
+    testImplementation 'org.testng:testng:7.7.1'
+    configurations.implementation.extendsFrom(configurations.extraLibs)
+}
+
+application {
+    mainClass = 'sdvhelper.Main'
+}
+
+java {
+    sourceCompatibility = "1.21"
+    targetCompatibility = "1.21"
+}
+
+jar {
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    manifest {
+        attributes 'Main-Class': 'sdvhelper.Main'
+    }
+    archiveBaseName = 'sdvhelper'
+    from { configurations.extraLibs.collect { it.isDirectory() ? it : zipTree(it) } }
+}
+
+tasks.named('test') {
+    useTestNG()
+}
