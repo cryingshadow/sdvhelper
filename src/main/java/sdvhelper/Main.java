@@ -222,7 +222,7 @@ public class Main {
         writer.write(year);
         writer.write(": \n");
         writer.write("Alternativen: \n");
-        writer.write("Wunsch: \n");
+        writer.write("Wunsch: \n\n");
         writer.write("Leistungen: \n\n");
         writer.write("Hürden: \n\n");
         writer.write("Engagement: \n\n");
