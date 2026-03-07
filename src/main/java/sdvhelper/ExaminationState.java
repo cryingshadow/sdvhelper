@@ -1,6 +1,6 @@
 package sdvhelper;
 
-public enum State {
+public enum ExaminationState {
 
     GROUP("G"),
     INTERVIEW1("I"),
@@ -9,7 +9,7 @@ public enum State {
 
     public final String id;
 
-    private State(final String id) {
+    private ExaminationState(final String id) {
         this.id = id;
     }
 

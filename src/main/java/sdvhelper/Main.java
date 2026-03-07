@@ -9,6 +9,9 @@ public class Main {
 
     private static final Pattern PARTICIPANT_ID_PATTERN = Pattern.compile("\\d\\d?");
 
+    private static final Pattern PARTICIPANT_PATTERN =
+        Pattern.compile("([^,]+),([^\\(]+)\\(([dmw])\\)\\s*-([^\\(]+)\\(([^\\)]+)\\)\\s*");
+
     private static final String START_MARKER = "#####";
 
     private static final Pattern TIME_PATTERN = Pattern.compile("\\d\\d:\\d\\d-\\d\\d:\\d\\d\\*?");
@@ -23,9 +26,13 @@ public class Main {
         final int memberIndex = Integer.parseInt(args[1]) - 1;
         final File directory = root.toPath().resolve(seminarDirectoryName).toFile();
         final File orgaTXT = Main.processOrgaFile(directory);
+        final File protocolTXT = Main.processProtocolFile(directory);
         final List<Examination> examinations = Main.parseExaminations(orgaTXT, directory, memberIndex);
+        final List<Participant> participants = Main.parseParticipants(protocolTXT);
         orgaTXT.delete();
+        protocolTXT.delete();
         Main.writeNotes(directory, examinations, args[2]);
+        Main.writeVotes(directory, participants);
     }
 
     private static List<Examination> parseExaminations(
@@ -36,7 +43,7 @@ public class Main {
         final List<Examination> examinations = new LinkedList<Examination>();
         try (final BufferedReader reader = new BufferedReader(new FileReader(orgaTXT))) {
             String line = reader.readLine();
-            State state = State.NORMAL;
+            ExaminationState state = ExaminationState.NORMAL;
             int currentIndex = 0;
             String currentStart = "";
             String currentEnd = "";
@@ -46,17 +53,17 @@ public class Main {
                         final String[] parts = line.split("-");
                         currentStart = parts[0];
                         currentEnd = parts[1].endsWith("*") ? parts[1].substring(0, parts[1].length() - 1) : parts[1];
-                        state = State.NORMAL;
+                        state = ExaminationState.NORMAL;
                         currentIndex = 0;
                     } else {
                         switch (state) {
                         case NORMAL:
                             if (line.startsWith("Gruppenrunde")) {
-                                state = State.GROUP;
+                                state = ExaminationState.GROUP;
                             } else if (line.startsWith("Einzelgespräch 1")) {
-                                state = State.INTERVIEW1;
+                                state = ExaminationState.INTERVIEW1;
                             } else if (line.startsWith("Einzelgespräch 2")) {
-                                state = State.INTERVIEW2;
+                                state = ExaminationState.INTERVIEW2;
                             }
                             break;
                         default:
@@ -70,7 +77,7 @@ public class Main {
                                 }
                                 currentIndex++;
                             } else {
-                                state = State.NORMAL;
+                                state = ExaminationState.NORMAL;
                                 currentIndex = 0;
                             }
                         }
@@ -90,11 +97,69 @@ public class Main {
         return String.format("%s, %s", parts[1], parts[2].substring(0, parts[2].length() - 4));
     }
 
+    private static List<Participant> parseParticipants(final File protocolTXT) throws IOException {
+        final List<Participant> participants = new LinkedList<Participant>();
+        try (final BufferedReader reader = new BufferedReader(new FileReader(protocolTXT))) {
+            String line = reader.readLine();
+            main: while (line != null) {
+                if (line.isBlank()) {
+                    line = reader.readLine();
+                    continue;
+                }
+                if (Main.PARTICIPANT_ID_PATTERN.matcher(line.trim()).matches()) {
+                    final int id = Integer.parseInt(line);
+                    String part = "";
+                    while (true) {
+                        line = reader.readLine();
+                        if (line == null) {
+                            break;
+                        }
+                        if (line.isBlank()) {
+                            continue;
+                        }
+                        if (line.startsWith("fehlt")) {
+                            line = reader.readLine();
+                            continue main;
+                        }
+                        if (Main.PARTICIPANT_ID_PATTERN.matcher(line.trim()).matches()) {
+                            System.out.println(String.format("Could not parse participant %d!", id));
+                            continue main;
+                        }
+                        if (!part.isBlank() && !part.endsWith(" ") && !line.startsWith(" ")) {
+                            part += " ";
+                        }
+                        part += line;
+                        final Matcher participantMatcher = Main.PARTICIPANT_PATTERN.matcher(part);
+                        if (participantMatcher.matches()) {
+                            participants.add(
+                                new Participant(
+                                    id,
+                                    participantMatcher.group(1).trim(),
+                                    participantMatcher.group(2).trim(),
+                                    Gender.forSymbol(participantMatcher.group(3)),
+                                    participantMatcher.group(4).trim(),
+                                    participantMatcher.group(5).trim()
+                                )
+                            );
+                            break;
+                        }
+                    }
+                }
+                line = reader.readLine();
+            }
+        }
+        return participants;
+    }
+
     private static File processOrgaFile(final File directory) throws IOException, InterruptedException {
+        return Main.processPDFFile(directory, "Orgaplan");
+    }
+
+    private static File processPDFFile(final File directory, final String prefix) throws IOException, InterruptedException {
         final File[] files =
-            directory.listFiles(file -> file.getName().startsWith("Orgaplan") && file.getName().endsWith("pdf"));
+            directory.listFiles(file -> file.getName().startsWith(prefix) && file.getName().endsWith("pdf"));
         if (files.length != 1) {
-            System.out.println("Could not determine orga file!");
+            System.out.println(String.format("Could not determine %s file!", prefix));
             return null;
         }
         final File orgaPDF = files[0];
@@ -107,9 +172,13 @@ public class Main {
             directory.toPath().resolve(orgaPDF.getName().substring(0, orgaPDF.getName().length() - 3) + "txt").toFile();
     }
 
+    private static File processProtocolFile(final File directory) throws IOException, InterruptedException {
+        return Main.processPDFFile(directory, "Protokoll-Liste");
+    }
+
     private static Examination toExamination(
         final String line,
-        final State state,
+        final ExaminationState state,
         final String start,
         final String end,
         final File directory
@@ -277,7 +346,7 @@ public class Main {
     ) throws IOException {
         final File notes = directory.toPath().resolve("notizen.txt").toFile();
         final List<Examination> groupExaminations =
-            examinations.stream().filter(e -> e.state() == State.GROUP).toList();
+            examinations.stream().filter(e -> e.state() == ExaminationState.GROUP).toList();
         try (final BufferedWriter writer = new BufferedWriter(new FileWriter(notes))) {
             for (final Examination examination : examinations) {
                 switch (examination.state()) {
@@ -310,6 +379,16 @@ public class Main {
                         writer
                     );
                 }
+            }
+        }
+    }
+
+    private static void writeVotes(final File directory, final List<Participant> participants) throws IOException {
+        final File votes = directory.toPath().resolve("voten.csv").toFile();
+        try (final BufferedWriter writer = new BufferedWriter(new FileWriter(votes))) {
+            for (final Participant participant : participants) {
+                writer.write(participant.toCSV());
+                writer.write("\n");
             }
         }
     }
